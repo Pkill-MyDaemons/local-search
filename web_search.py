@@ -1,7 +1,11 @@
 """
-On-demand page fetcher: given a URL, fetches it like a browser,
-extracts clean text, chunks it, and caches in SQLite.
-No external search engine involved.
+Web search and on-demand page fetcher.
+
+google_search(query) — constructs a Google search URL, scrapes the results
+                       page, and returns a list of {title, url, snippet} dicts.
+
+fetch_and_index(url) — fetches a URL, extracts clean text, chunks and caches
+                       it in SQLite. Results cached for 6 hours.
 """
 import re
 import sqlite3
@@ -37,6 +41,14 @@ _STRIP_TAGS = {
 
 # ── DB setup ──────────────────────────────────────────────────────────────────
 
+_GOOGLE_SKIP = re.compile(
+    r"google\.|youtube\.com|webcache\.googleusercontent|accounts\."
+    r"|support\.google|maps\.google|play\.google|policies\.google"
+)
+
+SEARCH_CACHE_TTL = 60 * 30  # 30 minutes for search result lists
+
+
 def open_web_db() -> sqlite3.Connection:
     conn = sqlite3.connect(WEB_DB_PATH)
     conn.executescript("""
@@ -52,9 +64,98 @@ def open_web_db() -> sqlite3.Connection:
             content,
             tokenize = 'porter unicode61 remove_diacritics 1'
         );
+        CREATE TABLE IF NOT EXISTS search_cache (
+            query    TEXT PRIMARY KEY,
+            results  TEXT,
+            fetched  INTEGER
+        );
     """)
     conn.commit()
     return conn
+
+
+# ── Google search scraper ─────────────────────────────────────────────────────
+
+def google_search(query: str, max_results: int = 5) -> list[dict]:
+    """
+    Constructs https://www.google.com/search?q=<query>, scrapes organic
+    results, and returns a list of {title, url, snippet} dicts.
+    Results are cached for 30 minutes.
+    """
+    import json as _json
+
+    conn = open_web_db()
+    cutoff = int(time.time()) - SEARCH_CACHE_TTL
+    row = conn.execute(
+        "SELECT results FROM search_cache WHERE query = ? AND fetched > ?",
+        (query, cutoff),
+    ).fetchone()
+    if row:
+        conn.close()
+        return _json.loads(row[0])
+
+    search_url = "https://www.google.com/search?" + urllib.parse.urlencode({
+        "q": query, "num": 10, "hl": "en", "gl": "us",
+    })
+    req = urllib.request.Request(search_url, headers={
+        **_HEADERS,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Referer": "https://www.google.com/",
+    })
+    with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT) as resp:
+        raw = resp.read(MAX_PAGE_BYTES)
+
+    soup = BeautifulSoup(raw, "lxml")
+    results: list[dict] = []
+
+    for a in soup.find_all("a", href=True):
+        href: str = a["href"]
+
+        # decode Google redirect URLs (/url?q=https://...)
+        if href.startswith("/url?"):
+            parsed_qs = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
+            href = parsed_qs.get("q", [""])[0]
+
+        if not href.startswith("http"):
+            continue
+        if _GOOGLE_SKIP.search(href):
+            continue
+
+        # title is the nearest h3
+        h3 = a.find("h3")
+        if not h3:
+            continue
+        title = h3.get_text(strip=True)
+        if not title:
+            continue
+
+        # snippet: largest text block in the enclosing result div
+        snippet = ""
+        parent = a.parent
+        for _ in range(5):          # walk up at most 5 levels
+            if parent is None:
+                break
+            for div in parent.find_all("div", recursive=False):
+                text = div.get_text(" ", strip=True)
+                if 40 < len(text) < 400 and text != title:
+                    snippet = text
+                    break
+            if snippet:
+                break
+            parent = parent.parent
+
+        if href not in {r["url"] for r in results}:
+            results.append({"title": title, "url": href, "snippet": snippet})
+        if len(results) >= max_results:
+            break
+
+    conn.execute(
+        "INSERT OR REPLACE INTO search_cache(query, results, fetched) VALUES (?, ?, ?)",
+        (query, _json.dumps(results), int(time.time())),
+    )
+    conn.commit()
+    conn.close()
+    return results
 
 
 def _is_cached(conn: sqlite3.Connection, url: str) -> bool:

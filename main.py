@@ -4,6 +4,7 @@ FastAPI search server.
 
 Endpoints:
   GET /search?q=<query>[&format=json|llm][&limit=5]                    — local file index
+  GET /search/web?q=<query>[&format=json|llm]                          — Google search (scraped, no API key)
   GET /fetch?url=<url>[&q=<query>][&format=json|llm][&limit=5]         — fetch a URL, return chunks
   POST /index   — re-index the data/ directory
   GET /health
@@ -76,6 +77,21 @@ def search(
     if format == "llm":
         return _as_llm(q, kept, source_key="path")
     return _as_json_local(q, kept)
+
+
+@app.get("/search/web")
+def search_web(
+    q: str = Query(..., min_length=1),
+    format: str = Query("llm", pattern="^(json|llm)$"),
+):
+    try:
+        results = ws.google_search(q)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    if format == "llm":
+        return _as_llm_search(q, results)
+    return {"query": q, "count": len(results), "results": results}
 
 
 @app.get("/fetch")
@@ -152,3 +168,18 @@ def _as_json_web(query: str, rows) -> dict:
             for i, r in enumerate(rows)
         ],
     }
+
+
+def _as_llm_search(query: str, results: list[dict]) -> PlainTextResponse:
+    if not results:
+        body = f'No Google results for "{query}".'
+    else:
+        lines = [f"Google search results for: {query}\n"]
+        for i, r in enumerate(results, 1):
+            lines.append(f'<result rank="{i}" url="{r["url"]}">')
+            lines.append(f'  <title>{r["title"]}</title>')
+            if r.get("snippet"):
+                lines.append(f'  <snippet>{r["snippet"]}</snippet>')
+            lines.append("</result>\n")
+        body = "\n".join(lines)
+    return PlainTextResponse(content=body, media_type="text/plain")
