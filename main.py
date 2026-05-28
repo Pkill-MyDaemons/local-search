@@ -23,7 +23,7 @@ import web_search as ws
 DB_PATH = idx.DB_PATH
 MAX_TOTAL_CHARS = 4000
 
-app = FastAPI(title="local-search", version="3.0.0")
+app = FastAPI(title="flounder", version="3.0.0")
 
 
 @contextmanager
