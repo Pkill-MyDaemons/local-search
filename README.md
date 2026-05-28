@@ -1,6 +1,6 @@
 # Flounder
 
-A local search server that gives AI agents free web search and page reading without any API keys. Runs on `localhost:8000` and is used as a tool backend by [task-agent](https://github.com/Pkill-MyDaemons/task-agent).
+A local search server that gives AI agents free web search and page reading without any API keys. Runs on `localhost:8000` and is used as a tool backend by [Trout](https://github.com/Pkill-MyDaemons/trout).
 
 ![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python)
 
