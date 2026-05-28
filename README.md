@@ -1,4 +1,4 @@
-# local-search
+# Flounder
 
 A local search server that gives AI agents free web search and page reading without any API keys. Runs on `localhost:8000` and is used as a tool backend by [task-agent](https://github.com/Pkill-MyDaemons/task-agent).
 
@@ -14,8 +14,8 @@ A local search server that gives AI agents free web search and page reading with
 ## Quick start
 
 ```bash
-git clone https://github.com/Pkill-MyDaemons/local-search
-cd local-search
+git clone https://github.com/Pkill-MyDaemons/flounder
+cd flounder
 ./start.sh
 ```
 
@@ -101,7 +101,7 @@ All endpoints cap combined response content at 4,000 characters so context windo
 ## Project structure
 
 ```
-local-search/
+flounder/
 ├── main.py          # FastAPI server and endpoints
 ├── indexer.py       # Local file indexer (clean, chunk, FTS5)
 ├── web_search.py    # Google scraper and page fetcher
